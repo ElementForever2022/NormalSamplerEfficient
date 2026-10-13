@@ -50,13 +50,17 @@ void record_loop(const std::string& filename)
 
     auto write_snapshot = [&](const Record& r, const char* tag) {
         SampleCount total = g_total_samples.load(std::memory_order_relaxed);
+        // 纪录时间 = 样本产生时刻（r.when）；写入时间 = 本条日志落盘时刻。
+        // 新纪录两者近似相同；"每分钟"快照两者相差可达一个记录间隔。
+        auto now = std::chrono::system_clock::now();
         ofs << "[" << tag << "] ";
         if (!r.valid) {
-            ofs << "时间: " << format_gmt(std::chrono::system_clock::now())
+            ofs << "写入时间: " << format_gmt(now)
                 << " | 总抽样数: " << static_cast<unsigned long long>(total)
                 << " (尚无有效样本)\n";
         } else {
-            ofs << "时间: " << format_gmt(r.when)
+            ofs << "纪录时间: " << format_gmt(r.when)
+                << " | 写入时间: " << format_gmt(now)
                 << " | S: " << std::setprecision(10) << (double)r.S
                 << " | x: " << std::setprecision(10) << (double)r.x
                 << " | 该样本是第几个: "
