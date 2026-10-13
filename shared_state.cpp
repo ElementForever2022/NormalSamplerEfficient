@@ -17,14 +17,12 @@ std::atomic<bool>       g_has_new_record{false};
 std::atomic<SampleCount> g_total_samples{0};
 
 std::mutex  g_bin_mutex;
-SampleCount g_tail[NBINS + 1] = {0};
 SampleCount g_ring[NBINS + 1] = {0};
 
 void flush_bins(LocalBins& lb)
 {
     std::lock_guard<std::mutex> lk(g_bin_mutex);
     for (int i = 0; i <= NBINS; ++i) {
-        if (lb.tail[i]) { g_tail[i] += lb.tail[i]; lb.tail[i] = 0; }
         if (lb.ring[i]) { g_ring[i] += lb.ring[i]; lb.ring[i] = 0; }
     }
 }

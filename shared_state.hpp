@@ -8,7 +8,7 @@
 //   g_best_S               —— g_best.S 的原子镜像，采样线程无锁快筛
 //   g_stop / g_reached     —— 停止标志 / 是否达标
 //   g_total_samples        —— 全局总样本数（批量原子更新）
-//   g_tail / g_ring        —— 全局分箱计数（保护它们用 g_bin_mutex）
+//   g_ring                 —— 全局环形分箱计数（保护它用 g_bin_mutex）
 //
 // 锁顺序约定（避免死锁）：g_mutex -> g_bin_mutex，不可反向。
 // ============================================================================
@@ -47,12 +47,10 @@ extern std::atomic<SampleCount> g_total_samples;
 
 // ---- 分箱计数（g_bin_mutex 保护）----
 extern std::mutex  g_bin_mutex;
-extern SampleCount g_tail[NBINS + 1];
 extern SampleCount g_ring[NBINS + 1];
 
 // 线程本地分箱，攒够 FLUSH_INTERVAL 再并入全局，降低锁竞争
 struct LocalBins {
-    SampleCount tail[NBINS + 1] = {0};
     SampleCount ring[NBINS + 1] = {0};
 };
 

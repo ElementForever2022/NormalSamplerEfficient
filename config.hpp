@@ -10,7 +10,7 @@
 namespace rs {
 
 // 目标：找到 S = -ln(u) >= SH[TARGET_SIGMA] 的样本即停止
-// 等价于 |x| >= TARGET_SIGMA σ 的标准正态尾部事件
+// 等价于单边标准正态事件 x >= TARGET_SIGMA σ（P = Φ̄(TARGET_SIGMA)）
 static constexpr double TARGET_SIGMA       = 10.0;
 
 // 记录线程每隔多少秒写一次"每分钟"快照（新纪录会立即写，不受此限制）

@@ -50,7 +50,6 @@ void sample_loop(std::uint64_t seed)
             if (S_full >= SH[i]) { ring = i; break; }
         }
         lb.ring[ring] += 1;
-        for (int j = ring; j >= 1; --j) lb.tail[j] += 1;
 
         // ---- 更新最稀有纪录（双重检查：先无锁读原子镜像，再加锁写）----
         if (S_full > (long double)g_best_S.load(std::memory_order_relaxed)) {

@@ -1,6 +1,7 @@
 // recorder.cpp — 记录线程实现
 #include "recorder.hpp"
 
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -11,26 +12,6 @@
 
 namespace rs {
 
-namespace {
-
-// 打印 2*n（n 为 SampleCount）。总样本可达 1e23 量级，2*n 可能溢出 64 位，
-// 有 __int128 时用它做十进制转换，避免回绕。
-void write_doubled(std::ostream& os, SampleCount n)
-{
-#if defined(__SIZEOF_INT128__)
-    unsigned __int128 v = (unsigned __int128)n * 2u;
-    if (v == 0) { os << '0'; return; }
-    char buf[40];
-    int  p = 40;
-    while (v) { buf[--p] = char('0' + (int)(v % 10)); v /= 10; }
-    os.write(buf + p, 40 - p);
-#else
-    os << (n <= (~SampleCount(0) / 2) ? n * 2 : n);
-#endif
-}
-
-} // namespace
-
 void record_loop(const std::string& filename)
 {
     std::ofstream ofs(filename, std::ios::out | std::ios::app);
@@ -39,37 +20,23 @@ void record_loop(const std::string& filename)
         return;
     }
 
+    const long double LN10 = std::log(10.0L);
+
     // ---- 内部辅助：把当前全局分箱写入文件 ----
     // 紧凑格式：每类分布压缩到 2 行，bin 间用 " | " 分隔。
-    // 尾部累计每个 bin 同时给出单边 (>=kσ) 与双边 (±kσ = 2×单边，正态对称) 计数。
+    // 环形分布是单边 x（本程序 S=-ln(u) 对应单边尾概率 Phi_bar(x)），
+    // 故 [0,1)σ 理论占比 = Phi(1) ≈ 84.1%，不是双边的 68.3%。
     auto write_bins = [&](const char* indent) {
-        SampleCount tail[NBINS + 1];
         SampleCount ring[NBINS + 1];
         {
             std::lock_guard<std::mutex> lk(g_bin_mutex);
-            for (int i = 0; i <= NBINS; ++i) {
-                tail[i] = g_tail[i];
-                ring[i] = g_ring[i];
-            }
+            for (int i = 0; i <= NBINS; ++i) ring[i] = g_ring[i];
         }
 
         const int half = (NBINS + 1) / 2;   // 每行放一半 bin
 
-        // 尾部累计：2 行
-        ofs << indent << "尾部累计 (单边 | >=kσ ; 双边 | ±kσ):";
-        for (int i = 1; i <= NBINS; ++i) {
-            if (i == half + 1) ofs << "\n" << indent << "                ";
-            else if (i > 1)    ofs << " | ";
-            ofs << std::setprecision(2) << TH[i] << "σ:"
-                << static_cast<unsigned long long>(tail[i])
-                << "(±";
-            write_doubled(ofs, tail[i]);
-            ofs << ")";
-        }
-        ofs << "\n";
-
-        // 环形分布：2 行
-        ofs << indent << "环形分布 (|x| 落在 [k, k+1)σ):";
+        // 环形分布（观测计数）：2 行
+        ofs << indent << "环形分布 (x 落在 [k, k+1)σ, 单边):";
         for (int i = 0; i <= NBINS; ++i) {
             if (i == half) ofs << "\n" << indent << "                ";
             else if (i > 0) ofs << " | ";
@@ -77,6 +44,19 @@ void record_loop(const std::string& filename)
             if (i < NBINS) ofs << std::setprecision(2) << TH[i + 1];
             else           ofs << "∞";
             ofs << ")σ:" << static_cast<unsigned long long>(ring[i]);
+        }
+        ofs << "\n";
+
+        // 各档理论概率的 log10（稀有度）：2 行，与上面对齐
+        // P([k,k+1)σ) = Phi_bar(k) - Phi_bar(k+1)，末档 = Phi_bar(NBINS)
+        ofs << indent << "稀有度 log10 P:";
+        for (int i = 0; i <= NBINS; ++i) {
+            if (i == half) ofs << "\n" << indent << "                ";
+            else if (i > 0) ofs << " | ";
+            long double p_hi = std::exp(-SH[i]);   // Phi_bar(TH[i])
+            long double p = (i < NBINS) ? p_hi - std::exp(-SH[i + 1])
+                                        : p_hi;
+            ofs << std::setprecision(3) << (double)(std::log(p) / LN10);
         }
         ofs << "\n";
     };
@@ -96,6 +76,8 @@ void record_loop(const std::string& filename)
                 << " | 写入时间: " << format_gmt(now)
                 << " | S: " << std::setprecision(10) << (double)r.S
                 << " | x: " << std::setprecision(10) << (double)r.x
+                << " | 稀有度 log10 P: "
+                << std::setprecision(4) << (double)(-r.S / LN10)
                 << " | 该样本是第几个: "
                 << static_cast<unsigned long long>(r.sample_index)
                 << " | 当前总抽样数: "
