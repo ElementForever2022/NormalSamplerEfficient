@@ -27,17 +27,19 @@ namespace rs {
 inline constexpr long double LN2 = 0x1.62e42fefa39efp-1L;
 
 // 精算 S：需要两个 53 位块
+// 注：用 std::log/std::log1p 的 long double 重载（C++ 标准保证），
+// 不用 std::logl/std::log1pl（部分 libstdc++ 不在 std 内提供 C 包装）。
 inline long double S_from_two(std::uint64_t u_hi_bits,
                               std::uint64_t u_lo_bits)
 {
     if (u_hi_bits == 0) {
         long double lo = (long double)(u_lo_bits + 1);   // [1, 2^53]
-        return 106.0L * LN2 - std::logl(lo);
+        return 106.0L * LN2 - std::log(lo);
     } else {
         long double hi = (long double)u_hi_bits;
-        long double S  = 53.0L * LN2 - std::logl(hi);
+        long double S  = 53.0L * LN2 - std::log(hi);
         long double delta = ((long double)u_lo_bits + 1.0L) / hi * 0x1p-53L;
-        return S - std::log1pl(delta);
+        return S - std::log1p(delta);
     }
 }
 
@@ -46,7 +48,7 @@ inline long double S_from_two(std::uint64_t u_hi_bits,
 inline long double S_from_hi(std::uint64_t u_hi_bits)
 {
     if (u_hi_bits == 0) return 106.0L * LN2;   // 真实 S ≤ 106·ln2（由 u_lo 决定）
-    return 53.0L * LN2 - std::logl((long double)u_hi_bits);
+    return 53.0L * LN2 - std::log((long double)u_hi_bits);
 }
 
 } // namespace rs

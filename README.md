@@ -147,8 +147,10 @@ main
 
 ## 常见问题排查
 
-**Q: 编译报错 `erfcl` / `log1pl` 未声明？**
-确保 `-std=c++17` 且 `<cmath>` 已包含。MSYS2/MinGW 需链接 libm（默认自动）。
+**Q: 编译报错 `'logl' is not a member of 'std'`？**
+Ubuntu 的 libstdc++ 不在 `std` 命名空间提供 `logl`/`erfcl`/`log1pl` 等 C 包装
+函数。本项目统一使用 `std::log`/`std::erfc`/`std::log1p` 的 long double 重载
+（C++ 标准保证存在），请确认用的是最新版源码。
 
 **Q: 统计偏差大（尾部计数明显偏离 Φ̄(k)）？**
 1. 检查启动时打印的阈值表是否与 README 中参考值一致；
