@@ -5,7 +5,7 @@
 // 所有全局可变状态集中在这里，排查并发问题时只需看这一个文件：
 //   g_mutex / g_best       —— 最稀有纪录（保护它们用 g_mutex）
 //   g_cv                   —— 通知记录线程"有新纪录 / 要停止"
-//   g_best_S               —— g_best.S 的原子镜像，采样线程无锁快筛
+//   g_best_y               —— g_best.y 的原子镜像，采样线程无锁快筛
 //   g_stop / g_reached     —— 停止标志 / 是否达标
 //   g_total_samples        —— 全局总样本数（批量原子更新）
 //   g_ring                 —— 全局环形分箱计数（保护它用 g_bin_mutex）
@@ -23,9 +23,11 @@
 
 namespace rs {
 
-// 一条稀有纪录
+// 一条稀有纪录（按双边 |x| 排序）
+// y : 双边尾坐标 y = -ln(min(u,1-u))，越大越稀有（|x| >= kσ ⟺ y >= SH[k]）
+// x : 带符号分位，左尾为负（x = ±x_from_s(y)）
 struct Record {
-    long double S = 0.0L;
+    long double y = 0.0L;
     long double x = 0.0L;
     SampleCount sample_index = 0;
     std::chrono::system_clock::time_point when;
@@ -35,7 +37,7 @@ struct Record {
 // ---- 纪录相关（g_mutex 保护）----
 extern std::mutex              g_mutex;
 extern std::condition_variable g_cv;
-extern std::atomic<double>     g_best_S;    // double 而非 long double：避免 16 字节原子
+extern std::atomic<double>     g_best_y;    // double 而非 long double：避免 16 字节原子
 extern Record                  g_best;
 extern std::atomic<bool>       g_stop;
 extern Record                  g_final;

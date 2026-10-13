@@ -7,6 +7,7 @@
 #include <iostream>
 
 #include "config.hpp"
+#include "scompute.hpp"
 #include "shared_state.hpp"
 #include "thresholds.hpp"
 
@@ -24,8 +25,8 @@ void record_loop(const std::string& filename)
 
     // ---- 内部辅助：把当前全局分箱写入文件 ----
     // 紧凑格式：每类分布压缩到 2 行，bin 间用 " | " 分隔。
-    // 环形分布是单边 x（本程序 S=-ln(u) 对应单边尾概率 Phi_bar(x)），
-    // 故 [0,1)σ 理论占比 = Phi(1) ≈ 84.1%，不是双边的 68.3%。
+    // 分档是**双边** |x|：bin k 表示 |x| ∈ [k, k+1)σ（左尾 x<=-k 与右尾 x>=k 合计），
+    // 判定上下界即 ±kσ / ±(k+1)σ 对应的 SH 阈值（见 thresholds.hpp）。
     auto write_bins = [&](const char* indent) {
         SampleCount ring[NBINS + 1];
         {
@@ -36,7 +37,7 @@ void record_loop(const std::string& filename)
         const int half = (NBINS + 1) / 2;   // 每行放一半 bin
 
         // 环形分布（观测计数）：2 行
-        ofs << indent << "环形分布 (x 落在 [k, k+1)σ, 单边):";
+        ofs << indent << "环形分布 (|x| 落在 [k, k+1)σ, 双边):";
         for (int i = 0; i <= NBINS; ++i) {
             if (i == half) ofs << "\n" << indent << "                ";
             else if (i > 0) ofs << " | ";
@@ -48,14 +49,14 @@ void record_loop(const std::string& filename)
         ofs << "\n";
 
         // 各档理论概率的 log10（稀有度）：2 行，与上面对齐
-        // P([k,k+1)σ) = Phi_bar(k) - Phi_bar(k+1)，末档 = Phi_bar(NBINS)
-        ofs << indent << "稀有度 log10 P:";
+        // 双边：P(|x| ∈ [k,k+1)) = 2(Phi_bar(k) - Phi_bar(k+1))，末档 = 2·Phi_bar(NBINS)
+        ofs << indent << "稀有度 log10 P: ";
         for (int i = 0; i <= NBINS; ++i) {
             if (i == half) ofs << "\n" << indent << "                ";
             else if (i > 0) ofs << " | ";
-            long double p_hi = std::exp(-SH[i]);   // Phi_bar(TH[i])
-            long double p = (i < NBINS) ? p_hi - std::exp(-SH[i + 1])
-                                        : p_hi;
+            long double p_hi = std::exp(-SH[i]);   // Phi_bar(TH[i]) = P(x >= TH[i])
+            long double p = (i < NBINS) ? 2.0L * (p_hi - std::exp(-SH[i + 1]))
+                                        : 2.0L * p_hi;
             ofs << std::setprecision(3) << (double)(std::log(p) / LN10);
         }
         ofs << "\n";
@@ -74,10 +75,11 @@ void record_loop(const std::string& filename)
         } else {
             ofs << "纪录时间: " << format_gmt(r.when)
                 << " | 写入时间: " << format_gmt(now)
-                << " | S: " << std::setprecision(10) << (double)r.S
+                << " | y: " << std::setprecision(10) << (double)r.y
                 << " | x: " << std::setprecision(10) << (double)r.x
                 << " | 稀有度 log10 P: "
-                << std::setprecision(4) << (double)(-r.S / LN10)
+                // 双边：log10(2·Phi_bar(y)) = (ln2 - y)/ln10
+                << std::setprecision(4) << (double)((LN2 - r.y) / LN10)
                 << " | 该样本是第几个: "
                 << static_cast<unsigned long long>(r.sample_index)
                 << " | 当前总抽样数: "
@@ -91,11 +93,15 @@ void record_loop(const std::string& filename)
 
     // ---- 文件头 ----
     ofs << "# ===== 记录开始 " << format_gmt(std::chrono::system_clock::now())
-        << " (目标 sigma=" << TARGET_SIGMA << ") =====\n";
-    ofs << "# 阈值表 (离线 C++ 计算, SH = -ln(Phi_bar(x))):\n";
+        << " (目标 |x| >= " << TARGET_SIGMA << "σ, 双边) =====\n";
+    ofs << "# 阈值表 (离线 C++ 计算, 双边 ±kσ):\n";
+    ofs << "#   SH[k] = -ln(Phi_bar(k)) 右尾阈值: S = -ln(u) >= SH[k]  ⟺  x >= +kσ\n";
+    ofs << "#   LH[k] = -ln(Phi(k))     左尾阈值: S = -ln(u) <= LH[k]  ⟺  x <= -kσ\n";
+    ofs << "#   双边坐标 y = -ln(min(u,1-u)): |x| >= kσ ⟺ y >= SH[k]（左右尾共用）\n";
     for (int i = 1; i <= NBINS; ++i) {
         ofs << "#   " << i << "σ : SH = "
-            << std::setprecision(12) << (double)SH[i] << "\n";
+            << std::setprecision(12) << (double)SH[i]
+            << " | LH = " << (double)LH[i] << "\n";
     }
     ofs.flush();
 
@@ -133,7 +139,7 @@ void record_loop(const std::string& filename)
         final_rec = g_final.valid ? g_final : g_best;
     }
     if (g_reached.load()) {
-        ofs << "# ===== 达标！sigma >= " << TARGET_SIGMA << " =====\n";
+        ofs << "# ===== 达标！|x| >= " << TARGET_SIGMA << "σ =====\n";
         write_snapshot(final_rec, "最终/达标");
     } else {
         ofs << "# ===== 结束 =====\n";

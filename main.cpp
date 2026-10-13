@@ -40,14 +40,15 @@ int main(int argc, char** argv)
 
     std::cout << "种子: " << seed << "\n"
               << "输出文件: " << outfile << "\n"
-              << "目标: sigma >= " << TARGET_SIGMA << " 时停止\n"
+              << "目标: |x| >= " << TARGET_SIGMA << "σ 时停止（双边）\n"
               << "随机源: xoshiro256++ (双块 106 位)\n"
-              << "档位: 1σ ~ " << NBINS << "σ\n"
+              << "档位: [0,1)σ ~ [" << NBINS << ",∞)σ（双边 |x|）\n"
               << "线程数: " << nthreads << "\n"
-              << "阈值表 (SH = -ln(Phi_bar)):\n";
+              << "阈值表 (双边 ±kσ; SH = -ln(Phi_bar(k)) 右尾, LH = -ln(Phi(k)) 左尾):\n";
     for (int i = 1; i <= NBINS; ++i) {
         std::cout << "  " << i << "σ : SH = "
-                  << std::setprecision(12) << (double)SH[i] << "\n";
+                  << std::setprecision(12) << (double)SH[i]
+                  << " | LH = " << (double)LH[i] << "\n";
     }
     std::cout << std::endl;
 

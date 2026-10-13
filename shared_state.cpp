@@ -7,7 +7,7 @@ namespace rs {
 
 std::mutex              g_mutex;
 std::condition_variable g_cv;
-std::atomic<double>     g_best_S{0.0};
+std::atomic<double>     g_best_y{0.0};
 Record                  g_best;
 std::atomic<bool>       g_stop{false};
 Record                  g_final;

@@ -9,15 +9,22 @@
 
 namespace rs {
 
-// 目标：找到 S = -ln(u) >= SH[TARGET_SIGMA] 的样本即停止
-// 等价于单边标准正态事件 x >= TARGET_SIGMA σ（P = Φ̄(TARGET_SIGMA)）
+// 目标：找到双边 |x| >= TARGET_SIGMA σ 的样本即停止
+// 等价于双边尾概率 2·Phi_bar(TARGET_SIGMA)；分档/纪录也全部按 |x| 双边口径。
 static constexpr double TARGET_SIGMA       = 10.0;
+
+// 目标必须是整数档位（阈值表按 1σ, 2σ, ... 离散给出）
+static_assert(TARGET_SIGMA == (double)(int)TARGET_SIGMA,
+              "TARGET_SIGMA 必须是整数（阈值表只离散到整数 σ）");
 
 // 记录线程每隔多少秒写一次"每分钟"快照（新纪录会立即写，不受此限制）
 static constexpr int RECORD_INTERVAL_SEC   = 60;
 
-// 统计档位数：1σ, 2σ, ..., NBINS σ
+// 统计档位数：|x| ∈ [0,1)σ, [1,2)σ, ..., [NBINS, ∞)σ（双边，左右尾合计）
 static constexpr int NBINS                 = 12;
+
+// 最后一档（[NBINS, ∞)）要能覆盖目标 σ，否则达标样本无处分档
+static_assert(NBINS >= (int)TARGET_SIGMA, "NBINS 必须 >= TARGET_SIGMA");
 
 // 默认线程数，0 = 取 hardware_concurrency()
 static constexpr int NTHREADS_DEFAULT      = 0;
