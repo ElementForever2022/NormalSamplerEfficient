@@ -11,6 +11,26 @@
 
 namespace rs {
 
+namespace {
+
+// 打印 2*n（n 为 SampleCount）。总样本可达 1e23 量级，2*n 可能溢出 64 位，
+// 有 __int128 时用它做十进制转换，避免回绕。
+void write_doubled(std::ostream& os, SampleCount n)
+{
+#if defined(__SIZEOF_INT128__)
+    unsigned __int128 v = (unsigned __int128)n * 2u;
+    if (v == 0) { os << '0'; return; }
+    char buf[40];
+    int  p = 40;
+    while (v) { buf[--p] = char('0' + (int)(v % 10)); v /= 10; }
+    os.write(buf + p, 40 - p);
+#else
+    os << (n <= (~SampleCount(0) / 2) ? n * 2 : n);
+#endif
+}
+
+} // namespace
+
 void record_loop(const std::string& filename)
 {
     std::ofstream ofs(filename, std::ios::out | std::ios::app);
@@ -20,6 +40,8 @@ void record_loop(const std::string& filename)
     }
 
     // ---- 内部辅助：把当前全局分箱写入文件 ----
+    // 紧凑格式：每类分布压缩到 2 行，bin 间用 " | " 分隔。
+    // 尾部累计每个 bin 同时给出单边 (>=kσ) 与双边 (±kσ = 2×单边，正态对称) 计数。
     auto write_bins = [&](const char* indent) {
         SampleCount tail[NBINS + 1];
         SampleCount ring[NBINS + 1];
@@ -30,22 +52,33 @@ void record_loop(const std::string& filename)
                 ring[i] = g_ring[i];
             }
         }
-        ofs << indent << "尾部累计 (|x| >= k sigma):\n";
+
+        const int half = (NBINS + 1) / 2;   // 每行放一半 bin
+
+        // 尾部累计：2 行
+        ofs << indent << "尾部累计 (单边 | >=kσ ; 双边 | ±kσ):";
         for (int i = 1; i <= NBINS; ++i) {
-            ofs << indent << "  " << std::setprecision(2) << TH[i]
-                << "σ : " << static_cast<unsigned long long>(tail[i]) << "\n";
+            if (i == half + 1) ofs << "\n" << indent << "                ";
+            else if (i > 1)    ofs << " | ";
+            ofs << std::setprecision(2) << TH[i] << "σ:"
+                << static_cast<unsigned long long>(tail[i])
+                << "(±";
+            write_doubled(ofs, tail[i]);
+            ofs << ")";
         }
-        ofs << indent << "环形分布 (|x| 落在 [k, k+1) sigma):\n";
-        ofs << indent << "  [0, 1)σ : "
-            << static_cast<unsigned long long>(ring[0]) << "\n";
-        for (int i = 1; i < NBINS; ++i) {
-            ofs << indent << "  [" << std::setprecision(2) << TH[i]
-                << ", " << TH[i+1] << ")σ : "
-                << static_cast<unsigned long long>(ring[i]) << "\n";
+        ofs << "\n";
+
+        // 环形分布：2 行
+        ofs << indent << "环形分布 (|x| 落在 [k, k+1)σ):";
+        for (int i = 0; i <= NBINS; ++i) {
+            if (i == half) ofs << "\n" << indent << "                ";
+            else if (i > 0) ofs << " | ";
+            ofs << "[" << std::setprecision(2) << TH[i] << ",";
+            if (i < NBINS) ofs << std::setprecision(2) << TH[i + 1];
+            else           ofs << "∞";
+            ofs << ")σ:" << static_cast<unsigned long long>(ring[i]);
         }
-        ofs << indent << "  [" << std::setprecision(2) << TH[NBINS]
-            << ", ∞)σ : "
-            << static_cast<unsigned long long>(ring[NBINS]) << "\n";
+        ofs << "\n";
     };
 
     auto write_snapshot = [&](const Record& r, const char* tag) {
